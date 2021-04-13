@@ -1,5 +1,5 @@
 <?php
-require 'static/db.php';
+require 'db/util.php';
 
 
 try {

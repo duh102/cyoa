@@ -1,5 +1,5 @@
 <?php
-require "config.php";
+require_once "../static/config.php";
 
 function get_conn() {
   try {
@@ -27,7 +27,7 @@ function create_db($conn) {
     last_login TIMESTAMP,
 
     CONSTRAINT PK_USER PRIMARY KEY (id),
-    CONSTRAINT UNIQ_USER UNIQUE (username)
+    CONSTRAINT UNIQ_USER UNIQUE (LOWER(username))
   );
 
   CREATE TABLE IF NOT EXISTS {$prefix}registration (
@@ -35,11 +35,12 @@ function create_db($conn) {
     username VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL,
     password VARCHAR(255) NOT NULL,
+    code VARCHAR(128) NOT NULL,
     submitted TIMESTAMP NOT NULL,
 
     CONSTRAINT PK_REGISTRATION PRIMARY KEY (id),
-    CONSTRAINT UNIQ_REGISTRATION_EMAIL UNIQUE (email),
-    CONSTRAINT UNIQ_REGISTRATION_USER UNIQUE (username)
+    CONSTRAINT UNIQ_REGISTRATION_EMAIL UNIQUE (LOWER(email)),
+    CONSTRAINT UNIQ_REGISTRATION_USER UNIQUE (LOWER(username))
   );
 
   CREATE TABLE IF NOT EXISTS {$prefix}story (
@@ -130,7 +131,8 @@ function create_db($conn) {
   }
 }
 
-
-
+function getTableName($table) {
+  return $prefix . $table;
+}
 
 ?>
