@@ -21,26 +21,16 @@ function create_db($conn) {
     username VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL,
     password VARCHAR(255) NOT NULL,
-    deactivated BOOL DEFAULT false,
-    deleted BOOL DEFAULT false,
+    confirmcode VARCHAR(128),
+    reg_submit_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    confirmed BOOL NOT NULL DEFAULT false,
+    deactivated BOOL NOT NULL DEFAULT false,
+    deleted BOOL NOT NULL DEFAULT false,
     created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login TIMESTAMP,
 
     CONSTRAINT PK_USER PRIMARY KEY (id),
     CONSTRAINT UNIQ_USER UNIQUE (LOWER(username))
-  );
-
-  CREATE TABLE IF NOT EXISTS {$prefix}registration (
-    id BIGINT AUTOINCREMENT,
-    username VARCHAR(255) NOT NULL,
-    email VARCHAR(255) NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    code VARCHAR(128) NOT NULL,
-    submitted TIMESTAMP NOT NULL,
-
-    CONSTRAINT PK_REGISTRATION PRIMARY KEY (id),
-    CONSTRAINT UNIQ_REGISTRATION_EMAIL UNIQUE (LOWER(email)),
-    CONSTRAINT UNIQ_REGISTRATION_USER UNIQUE (LOWER(username))
   );
 
   CREATE TABLE IF NOT EXISTS {$prefix}story (

@@ -1,21 +1,23 @@
 <?php
 require_once "util.php"
 
-function createRegistration($conn, $username, $email, $password) {
+function create_registration($conn, $username, $email, $password) {
   $conn->beginTransaction();
   try {
     $hashedpass = password_hash($password, PASSWORD_DEFAULT);
-    $signedup = false;
-    $tablename = getTableName("registration");
-    $stmt = $conn->prepare("DELETE FROM {$tablename} WHERE LOWER(username) = LOWER(:username);");
-    $stmt->execute(array('username'=>$username));
-    $stmt->closeCursor();
-    // There's probably an optimization we can put here to make sure we don't insert a new registration request for a
-    // user that already exists; maybe we shouldn't have a registration table at all and just store the code in the user
-    // table
-    $stmt = $conn->prepare("INSERT INTO {$tablename} (username, email, password, code, submitted) VALUES (:username, :email, :password, :code, CURRENT_TIMESTAMP)");
     $signupCode = genRegistrationString();
-    $stmt->execute(array('username'=>$username));
+
+    $tablename = getTableName("user");
+    $stmt = $conn->prepare("INSERT INTO {$tablename}
+      (username,   email,  password,  confirmcode, reg_submit_time,   confirmed, deactivated) VALUES
+      (:username, :email, :password, :code,        CURRENT_TIMESTAMP, false,     false)");
+    $success = $stmt->execute(array('username'=>$username, 'email'=>$email, 'password'=>$hashedpass, 'code'=>$signupCode));
+    $inserted = $stmt->rowCount()
+    if(is_null($success) or !$success or $inserted != 1) {
+      $stmt->closeCursor();
+      $conn->rollback();
+      return false;
+    }
     $stmt->closeCursor();
     $conn->commit();
     return $signupCode;
@@ -25,12 +27,37 @@ function createRegistration($conn, $username, $email, $password) {
   return false;
 }
 
-function confirmRegistration($conn, $username, $code) {
+function confirm_registration($conn, $username, $code) {
   $conn->beginTransaction();
   try {
-    $regTable = getTableName("registration");
     $userTable = getTableName("user");
-    //TODO: actually fill this in
+
+    $stmt = $conn->prepare("SELECT username, confirmcode, reg_submit_time FROM {$userTable} WHERE LOWER(username) = LOWER(:username)");
+    $success = $stmt->execute(array('username'=>$username));
+    if(is_null($success) or !$success) {
+      $stmt->closeCursor();
+      return false;
+    }
+    $userData = $stmt->fetch(PDO::FETCH_OBJ);
+    $stmt->closeCursor();
+    $dbTime = strtotime($userData->reg_submit_time);
+    // Adjust the DateInterval for how long a code should expire after; here it's set to 2 hours.
+    $codegood = $userData->confirmcode == $code and ($dbTime->add(new DateInterval('P2H'))) > time();
+    if(!$codegood) {
+      return false;
+    }
+    // Code's good, let's activate this sucker
+    // Let's add in the confirm code just in case; it's unnecessary but it's extra insurance in case the above function
+    // is ever modified incorrectly
+    $stmt = $conn->prepare("UPDATE {$userTable} SET confirmed = true WHERE LOWER(username) = LOWER(:username) AND confirmcode = :code");
+    $success = $stmt->execute(array('username'=>$username, 'code'=>$code));
+    $updated = $stmt->rowCount()
+    if(is_null($success) or !$success or $updated != 1) {
+      $stmt->closeCursor();
+      $conn->rollback();
+      return false;
+    }
+    $stmt->closeCursor();
     $conn->commit();
     return true;
   } catch( PDOException $pdoe) {
@@ -61,24 +88,19 @@ function genRegistrationString() {
     return $randomString;
 }
 
-// Prerequisite, must have sessions set up
 function login($conn, $username, $password) {
   $conn->beginTransaction();
   try {
     $tablename = getTableName("user");
-    $stmt = $conn.prepare("SELECT id, username, email, password, deactivated, deleted, created FROM {$tablename} WHERE LOWER(username) = LOWER(:username)");
-    $success = $stmt->execute(array('username' => $username));
-    // If we don't find the user, can't log them in obvs
-    if(is_null($success) or !$success) {
+    $userData = get_user_data($conn, null, $username);
+
+    // If the user is not yet confirmed, deleted, or their password is no good, also can't log them in
+    $passGood = password_verify($password, $userData->password);
+    if(!$userData->confirmed or $userData->deleted or !$passGood) {
       return false;
     }
-
-    // If the user is deleted or their password is no good, also can't log them in
-    $userData = $stmt->fetch(PDO::FETCH_OBJ);
-    $stmt->closeCursor();
-    $passGood = password_verify($password, $userData->password);
-    if($userData->deleted or !$passGood) {
-      return false;
+    if(session_status() === PHP_SESSION_NONE) {
+      session_start();
     }
 
     // The username is good, their password checks out, and they're not deleted, set up the session variables
@@ -91,7 +113,7 @@ function login($conn, $username, $password) {
     // And update their last-login to now
     $stmt = $conn->prepare("UPDATE {$tablename} SET last_login = CURRENT_TIMESTAMP WHERE LOWER(username) = LOWER(:username)");
     $success = $stmt->execute(array('username'=>$username));
-    if(is_null($success) or !$success or $stmt->rowCount() < 1) {
+    if(is_null($success) or !$success or $stmt->rowCount() != 1) {
       throw new Exception("Problem while updating last-login date for {$username}");
     }
     $stmt->closeCursor();
@@ -103,6 +125,29 @@ function login($conn, $username, $password) {
     $conn->rollback();
   }
   return false;
+}
+
+function get_user_data($conn, $userid, $username) {
+  $stmt = null;
+  $success = null;
+  $tablename = getTableName("user");
+  if(!is_null($userid)) {
+    $stmt = $conn->prepare("SELECT id, username, email, password, confirmed, deactivated, deleted, created, last_login FROM {$tablename} WHERE id = :id");
+    $success = $stmt->execute(array('id'=>$userid));
+  } else if(!is_null($username)) {
+    $stmt = $conn->prepare("SELECT id, username, email, password, confirmed, deactivated, deleted, created, last_login FROM {$tablename} WHERE LOWER(username) = LOWER(:username)");
+    $success = $stmt->execute(array('username'=>$username));
+  } else {
+    return null;
+  }
+  if(is_null($success) or !$success or $stmt->rowCount() != 1) {
+    $stmt->closeCursor();
+    return null;
+  }
+
+  $userData = $stmt->fetch(PDO::FETCH_OBJ);
+  $stmt->closeCursor();
+  return $userData
 }
 
 ?>
