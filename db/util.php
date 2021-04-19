@@ -88,7 +88,7 @@ function create_db($conn) {
   CREATE TABLE IF NOT EXISTS {$prefix}story_access_control (
     story BIGINT NOT NULL,
     user BIGINT NOT NULL,
-    access_type INT NOT NULL,
+    access_allow BOOL NOT NULL,
 
     CONSTRAINT PK_STORY_ACS (story, user),
     CONSTRAINT FK_STORY_ACS_STORY FOREIGN KEY (story) REFERENCES story(id) ON UPDATE CASCADE ON DELETE CASCADE,
